@@ -1,0 +1,7 @@
+# Example cgroup.conf
+
+ConstrainCores=yes
+ConstrainDevices=yes
+ConstrainRAMSpace=yes
+#ConstrainSwapSpace=yes
+AllowedSwapSpace=10

@@ -1,0 +1,28 @@
+---
+
+# slurm_box: "generic-x64/centos8s"
+# slurm_box: "generic-x64/centos9s"
+slurm_box: "alvistack/ubuntu-24.04"
+
+# proxy:
+#   hostname: "squid-proxy"
+#   ipaddress: "192.168.56.60"
+
+# This causes the pkgcache dir (e.g. on deb-based /var/cache/apt) to be shared amongst slurm hosts.
+# This is safe for vagrant as it provisions each machine serially, but could be dangerous if you
+# use post-vagrant scripts to install on all nodes simultaenously.
+shared_pkgcache_dir: true
+
+slurm_hosts:
+  # The keys here are the vagrant aliases, for use in e.g.
+  # $ vagrant ssh <myalias>
+
+  controller:
+    hostname: "controller"
+    ipaddress: "192.168.56.3"
+    roles: ["mysql", "slurmctld", "slurmdbd"]
+
+  node1:
+    hostname: "node1"
+    ipaddress: "192.168.56.4"
+    roles: ["slurmd"]

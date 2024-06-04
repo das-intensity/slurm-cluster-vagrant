@@ -3,6 +3,30 @@ SLURM Vagrant Cluster
 
 A demo SLURM cluster running in Vagrant virtual machines.
 
+# QuickStart
+
+If you're interested in just getting an example cluster up quickly, just do:
+```
+$ make example1
+$ vagrant plugin install vagrant-proxyconf
+$ vagrant up
+```
+
+You can then ssh into the controller node with `vagrant ssh controller` and run things like `sinfo`:
+```
+TODO
+```
+
+# Cluster Setup
+
+This repo will (by default) provide a cluster with 3 hosts:
+1. `squid-proxy` -> A http caching proxy used to cache OS packages so that you can fully nuke/recreate the cluster quickly
+2. `controller` -> Runs `slurmctld`, `slurmdbd`, and `mysql` (backing `slurmdbd`)
+3. `node1` -> Runs `slurmd`
+
+
+
+
 # Usage
 
 Build VM's
@@ -47,7 +71,7 @@ make clean
 
 Tested with:
 
-- Vagrant 2.0.1
+- Vagrant 2.4.1
 
 - SLURM 15.08.7 (Ubuntu 16.04)
 

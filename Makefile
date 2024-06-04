@@ -1,81 +1,62 @@
 SHELL:=/bin/bash
 
-# Create Vagrant VMs
-# copy munge authenication key from controller to node
-# !! need cp -p or else munge keys do not work
-setup:
-	vagrant up && \
-	vagrant ssh controller -- -t 'sudo cp -p /etc/munge/munge.key /vagrant/' && \
-	vagrant ssh server -- -t 'sudo cp -p /vagrant/munge.key /etc/munge/' && \
-	vagrant ssh server -- -t 'sudo chown munge /etc/munge/munge.key' && \
-	vagrant ssh controller -- -t 'ssh-keygen -b 2048 -t rsa -q -N "" -f /home/vagrant/.ssh/id_rsa' && \
-	vagrant ssh controller -- -t 'cp /home/vagrant/.ssh/id_rsa.pub /vagrant/id_rsa.controller.pub' && \
-	vagrant ssh server -- -t 'cat /vagrant/id_rsa.controller.pub >> .ssh/authorized_keys' && \
-	vagrant ssh server -- -t 'ssh-keygen -b 2048 -t rsa -q -N "" -f /home/vagrant/.ssh/id_rsa' && \
-	vagrant ssh server -- -t 'cp /home/vagrant/.ssh/id_rsa.pub /vagrant/id_rsa.server.pub' && \
-	vagrant ssh controller -- -t 'cat /vagrant/id_rsa.server.pub >> .ssh/authorized_keys' && \
-	rm -f munge.key id_rsa.controller.pub id_rsa.server.pub
+# slurmctld relies on slurmdbd so when they're on the same node, it fails to
+# start because slurmdbd isn't up yet, so we start it again here.
+up:
+	vagrant up && vagrant ssh controller -- -t 'sudo systemctl restart slurmctld'
 
-# make sure 'slurm' dir is writable for VMs
-# start munge in both VMs
-# start slurmctld, wait many seconds for it to fully start
-# start slurmd
-start:
-	find slurm -type d -exec chmod a+rwx {} \; && \
-	vagrant ssh controller -- -t 'sudo /etc/init.d/munge start; sleep 5' && \
-	vagrant ssh server -- -t 'sudo /etc/init.d/munge start; sleep 5' && \
-	vagrant ssh controller -- -t 'sudo slurmctld; sleep 30' && \
-	vagrant ssh server -- -t 'sudo slurmd; sleep 30' && \
-	vagrant ssh controller -- -t 'sudo scontrol update nodename=server state=resume; sinfo; sleep 5'
+halt:
+	vagrant halt
+
+destroy:
+	vagrant destroy -f
+
+fresh: destroy up
+
+
+# Reload slurm config, currently done by just restarting all services
+reload:
+	vagrant ssh controller -- -t 'sudo systemctl restart slurmctld'
+	vagrant ssh node1 -- -t 'sudo systemctl restart slurmd'
 
 sinfo:
 	vagrant ssh controller -- -t 'sinfo'
 
-# might need this to fix node down state?
-# fix:
-# 	vagrant ssh controller -- -t 'sudo scontrol update nodename=server state=resume'
+squeue:
+	vagrant ssh controller -- -t 'watch -n 1 squeue --me'
 
-# https://slurm.schedmd.com/troubleshoot.html
-# munge log: /var/log/munge/munged.log
-test:
-	@printf ">>> Checking munge keys on both machines\n"
-	@vagrant ssh controller -- -t 'sudo md5sum /etc/munge/munge.key; ls -l /etc/munge/munge.key'
-	@vagrant ssh server -- -t 'sudo md5sum /etc/munge/munge.key; ls -l /etc/munge/munge.key'
-	@printf "\n\n>>> Checking if controller can contact node (network)\n"
-	@vagrant ssh controller -- -t 'ping 10.10.10.4 -c1'
-	@printf "\n\n>>> Checking if SLURM controller is running\n"
-	@vagrant ssh controller -- -t 'scontrol ping'
-	@printf "\n\n>>> Checking if slurmctld is running on controller\n"
-	@vagrant ssh controller -- -t 'ps -el | grep slurmctld'
-	@printf "\n\n>>> Checking cluster status\n"
-	@vagrant ssh controller -- -t 'sinfo'
-	@printf "\n\n>>> Checking if node can contact controller (network)\n"
-	@vagrant ssh server -- -t 'ping 10.10.10.3 -c1'
-	@printf "\n\n>>> Checking if node can contact SLURM controller\n"
-	@vagrant ssh server -- -t 'scontrol ping'
-	@printf "\n\n>>> Checking if slurmd is running on node\n"
-	@vagrant ssh server -- -t 'ps -el | grep slurmd'
-	@printf "\n\n>>> Running a test job\n"
-	@vagrant ssh controller -- -t 'sbatch --wrap="hostname"'
-	@printf "\n\n>>> Running another test job\n"
-	@vagrant ssh controller -- -t 'sbatch /vagrant/job.sh'
-	@printf "\n\n>>> Checking node status\n"
-	@vagrant ssh controller -- -t 'scontrol show nodes=server'
+sacct:
+	vagrant ssh controller -- -t 'sacct'
 
-# pull the plug on the VMs
-stop:
-	vagrant halt --force controller
-	vagrant halt --force server
+example1:
+	ln -sfn slurm.conf.example1 config/slurm.conf
+	ln -sfn slurmdbd.conf.example1 config/slurmdbd.conf
+	ln -sfn cgroup.conf.example1 config/cgroup.conf
+	ln -sfn slurm_finalize.sh.example1 config/slurm_finalize.sh
 
-# delete the VMs
-remove:
-	vagrant destroy controller
-	vagrant destroy server
-
-# location of the SLURM default config generators for making new conf files
-get-config-html:
-	vagrant ssh controller -- -t 'cp /usr/share/doc/slurmctld/*.html /vagrant/'
-
-# get rid of the SLURM log files
-clean:
-	find slurm -type f ! -name ".gitkeep" -exec rm -f {} \;
+# This test will:
+# 1. Launch a job in the "low" qos
+# 2. Launch a job in the "high" qos
+# Since both jobs use the entire CPU count from node1 (the only node), the 2nd job should preempt the first
+test-qos-preempt:
+	@echo "BEGIN Testing QoS-based preemption requeue"
+	@echo ""
+	@echo "- Starting job in low-priority QoS"
+	@vagrant ssh controller -- -t 'sbatch --qos=low --cpus-per-task=4 --mem=256 --requeue --wrap="srun sleep 300" --job-name LowPrio'
+	@sleep 5
+	@vagrant ssh controller -- -t 'squeue --me'
+	@echo ""
+	@echo "- Starting job in high-priority QoS"
+	@vagrant ssh controller -- -t 'sbatch --qos=high --cpus-per-task=4 --mem=256 --requeue --wrap="srun sleep 300" --job-name HighPrio'
+	@sleep 5
+	@vagrant ssh controller -- -t 'squeue --me'
+	@echo ""
+	@echo "- In the above squeue output you should see:"
+	@echo "  - The low-priority job switched to pending (PD) state"
+	@echo "  - The high-priority job should be running (R)"
+	@echo "- If the low-priority job is still running and the higher one pending, something is wrong"
+	@sleep 3
+	@echo ""
+	@echo "- Cleanup - Killing all jobs"
+	@vagrant ssh controller -- -t 'scancel -u vagrant'
+	@echo "END Testing QoS-based preemption requeue"

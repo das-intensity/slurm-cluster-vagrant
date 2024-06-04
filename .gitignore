@@ -1,4 +1,7 @@
+*.swo
+*.swp
 .vagrant/*
+id_rsa*
+job-*.log
 munge.key
-slurm/*
 .DS_Store
