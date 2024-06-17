@@ -29,10 +29,18 @@ sacct:
 	vagrant ssh controller -- -t 'sacct'
 
 example1:
+	ln -sfn cluster.yaml.example1 config/cluster.yaml
 	ln -sfn slurm.conf.example1 config/slurm.conf
 	ln -sfn slurmdbd.conf.example1 config/slurmdbd.conf
 	ln -sfn cgroup.conf.example1 config/cgroup.conf
 	ln -sfn slurm_finalize.sh.example1 config/slurm_finalize.sh
+
+example2:
+	ln -sfn cluster.yaml.example1 config/cluster.yaml
+	ln -sfn slurm.conf.example2 config/slurm.conf
+	ln -sfn slurmdbd.conf.example1 config/slurmdbd.conf
+	ln -sfn cgroup.conf.example1 config/cgroup.conf
+	ln -sfn slurm_finalize.sh.example2 config/slurm_finalize.sh
 
 # This test will:
 # 1. Launch a job in the "low" qos
@@ -60,3 +68,30 @@ test-qos-preempt:
 	@echo "- Cleanup - Killing all jobs"
 	@vagrant ssh controller -- -t 'scancel -u vagrant'
 	@echo "END Testing QoS-based preemption requeue"
+
+# This test will:
+# 1. Launch a job in the "low" qos
+# 2. Launch a job in the "high" qos
+# Since both jobs use the entire CPU count from node1 (the only node), the 2nd job should preempt the first
+test-partition-preempt:
+	@echo "BEGIN Testing partition-based preemption requeue"
+	@echo ""
+	@echo "- Starting job in low-priority Partition"
+	@vagrant ssh controller -- -t 'sbatch -p low_prio --qos=normal --cpus-per-task=4 --mem=256 --requeue --wrap="srun sleep 3000" --job-name LowPrio'
+	@sleep 5
+	@vagrant ssh controller -- -t 'squeue --me'
+	@echo ""
+	@echo "- Starting job in high-priority Partition"
+	@vagrant ssh controller -- -t 'sbatch -p high_prio --qos=normal --cpus-per-task=4 --mem=256 --requeue --wrap="srun sleep 3000" --job-name HighPrio'
+	@sleep 5
+	@vagrant ssh controller -- -t 'squeue --me'
+	@echo ""
+	@echo "- In the above squeue output you should see:"
+	@echo "  - The low-priority job switched to pending (PD) state"
+	@echo "  - The high-priority job should be running (R)"
+	@echo "- If the low-priority job is still running and the higher one pending, something is wrong"
+	@sleep 3
+	@echo ""
+	# @echo "- Cleanup - Killing all jobs"
+	# @vagrant ssh controller -- -t 'scancel -u vagrant'
+	@echo "END Testing partition-based preemption requeue"

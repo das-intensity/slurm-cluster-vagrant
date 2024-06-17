@@ -1,0 +1,16 @@
+#!/bin/bash
+# vi: set ts=2 sw=2 sts=2 et :
+
+# Abort on failed commands
+set -e
+
+# Abort on unset variables
+set -u
+
+
+if [ "$(hostname)" == "controller" ]; then
+  sleep 5  # ensure slurmctld is started
+
+  sacctmgr -i add account Cluster=cluster Account=myaccount QOS=normal
+  sacctmgr -i add user User=vagrant Account=myaccount
+fi
